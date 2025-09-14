@@ -107,44 +107,47 @@ class Binary64Perceptron(BasePerceptron):
         """Binary64 is already the highest precision, no conversion needed"""
         return x  # Direct return since binary64 is already the highest precision
 
-# Mixin classes for different optimization strategies
-class QuantizationMixin:
-    """Mixin for input quantization optimization"""
+# Mixin classes for training optimization strategies
 
-    def _quantize_input(self, x, bits=8):
-        """Quantize input to reduce precision"""
-        # Scale to [0, 2^bits - 1]
-        x_scaled = (x - x.min()) / (x.max() - x.min()) * (2**bits - 1)
-        # Round and scale back
-        x_quantized = np.round(x_scaled) / (2**bits - 1) * (x.max() - x.min()) + x.min()
-        return x_quantized
+class TrainingOptimizationMixin:
+    """Mixin for training phase numerical representation optimization"""
 
-class LookupTableMixin:
-    """Mixin for lookup table optimization"""
+    def _fast_multiply(self, a, b):
+        """Fast multiplication using simple approximation"""
+        # Use simple scaling instead of bit-shift for better performance
+        return a * b
 
-    def _create_activation_lut(self):
-        """Create lookup table for activation function"""
-        # Pre-compute common threshold values
-        lut = {}
-        for i in range(-100, 101):
-            lut[i/10.0] = 1 if i >= 0 else 0
-        return lut
+    def _fast_add(self, a, b):
+        """Fast addition - direct operation"""
+        return a + b
 
-    def _lookup_activation(self, z):
-        """Use lookup table for activation function"""
-        z_rounded = round(z, 1)
-        return self.activation_lut.get(z_rounded, 1 if z >= 0 else 0)
+    def _update_weights_optimized(self, x_i, y_i, prediction, n_features):
+        """Optimized weight update using fast operations"""
+        if prediction != y_i:
+            error = y_i - prediction
 
-class BitShiftMixin:
-    """Mixin for bit-shift multiplication optimization"""
+            # Fast bias update
+            self.bias += self.learning_rate * error
 
-    def _bit_shift_multiply(self, a, b, shift_bits=8):
-        """Approximate multiplication using bit shifts"""
-        # Convert to fixed point representation
-        a_fixed = int(a * (2**shift_bits))
-        b_fixed = int(b * (2**shift_bits))
-        result = (a_fixed * b_fixed) >> shift_bits
-        return result / (2**shift_bits)
+            # Fast weight updates - vectorized approach
+            weight_updates = self.learning_rate * error * x_i
+            self.weights += weight_updates
+
+class EfficientTrainingMixin:
+    """More efficient training optimization using vectorized operations"""
+
+    def _vectorized_update_weights(self, x_i, y_i, prediction, n_features):
+        """Vectorized weight update for better performance"""
+        if prediction != y_i:
+            error = y_i - prediction
+
+            # Vectorized operations are much faster
+            self.bias += self.learning_rate * error
+            self.weights += self.learning_rate * error * x_i
+
+    def _vectorized_forward_pass(self, x_i, n_features):
+        """Vectorized forward pass"""
+        return self.bias + np.dot(self.weights, x_i)
 
 class OptimizedPerceptronBase:
     """Base class for optimized perceptrons with common functionality"""
@@ -220,26 +223,24 @@ class OptimizedPerceptronBase:
         """Preprocess inputs - can be overridden by mixins"""
         return X
 
-class QuantizedPerceptron(QuantizationMixin, OptimizedPerceptronBase):
-    """Perceptron with only input quantization optimization"""
 
-    def _preprocess_inputs(self, X):
-        """Quantize inputs"""
-        return self._quantize_input(X)
+# Training optimization classes
+class TrainOptPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase):
+    """Perceptron with training phase numerical optimization"""
 
-class LookupTablePerceptron(LookupTableMixin, OptimizedPerceptronBase):
-    """Perceptron with only lookup table optimization"""
+    def _update_weights(self, x_i, y_i, prediction, n_features):
+        """Use optimized weight update"""
+        self._update_weights_optimized(x_i, y_i, prediction, n_features)
 
-    def __init__(self, learning_rate=0.01, max_epochs=1000):
-        super().__init__(learning_rate, max_epochs)
-        self.activation_lut = self._create_activation_lut()
+class TrainBitShiftPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase):
+    """Perceptron with both training and inference bit-shift optimization"""
 
-    def _activation_function(self, z):
-        """Use lookup table for activation"""
-        return self._lookup_activation(z)
-
-class BitShiftPerceptron(BitShiftMixin, OptimizedPerceptronBase):
-    """Perceptron with only bit-shift multiplication optimization"""
+    def _bit_shift_multiply(self, a, b, shift_bits=8):
+        """Approximate multiplication using bit shifts"""
+        a_fixed = int(a * (2**shift_bits))
+        b_fixed = int(b * (2**shift_bits))
+        result = (a_fixed * b_fixed) >> shift_bits
+        return result / (2**shift_bits)
 
     def _forward_pass(self, x_i, n_features):
         """Use bit-shift multiplication for forward pass"""
@@ -248,12 +249,53 @@ class BitShiftPerceptron(BitShiftMixin, OptimizedPerceptronBase):
             z += self._bit_shift_multiply(self.weights[j], x_i[j])
         return z
 
-class OptimizedPerceptron(QuantizationMixin, LookupTableMixin, BitShiftMixin, OptimizedPerceptronBase):
-    """Perceptron with all three optimization methods combined"""
+    def _update_weights(self, x_i, y_i, prediction, n_features):
+        """Use optimized weight update"""
+        self._update_weights_optimized(x_i, y_i, prediction, n_features)
 
-    def __init__(self, learning_rate=0.01, max_epochs=1000):
-        super().__init__(learning_rate, max_epochs)
-        self.activation_lut = self._create_activation_lut()
+class TrainQuantizedPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase):
+    """Perceptron with training optimization and input quantization"""
+
+    def _quantize_input(self, x, bits=8):
+        """Quantize input to reduce precision"""
+        x_scaled = (x - x.min()) / (x.max() - x.min()) * (2**bits - 1)
+        x_quantized = np.round(x_scaled) / (2**bits - 1) * (x.max() - x.min()) + x.min()
+        return x_quantized
+
+    def _preprocess_inputs(self, X):
+        """Quantize inputs"""
+        return self._quantize_input(X)
+
+    def _update_weights(self, x_i, y_i, prediction, n_features):
+        """Use optimized weight update"""
+        self._update_weights_optimized(x_i, y_i, prediction, n_features)
+
+class EfficientPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
+    """Highly efficient perceptron using vectorized operations"""
+
+    def _forward_pass(self, x_i, n_features):
+        """Use vectorized forward pass"""
+        return self._vectorized_forward_pass(x_i, n_features)
+
+    def _update_weights(self, x_i, y_i, prediction, n_features):
+        """Use vectorized weight update"""
+        self._vectorized_update_weights(x_i, y_i, prediction, n_features)
+
+class TrainCombinedPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase):
+    """Perceptron with all three training optimization methods combined"""
+
+    def _bit_shift_multiply(self, a, b, shift_bits=8):
+        """Approximate multiplication using bit shifts"""
+        a_fixed = int(a * (2**shift_bits))
+        b_fixed = int(b * (2**shift_bits))
+        result = (a_fixed * b_fixed) >> shift_bits
+        return result / (2**shift_bits)
+
+    def _quantize_input(self, x, bits=8):
+        """Quantize input to reduce precision"""
+        x_scaled = (x - x.min()) / (x.max() - x.min()) * (2**bits - 1)
+        x_quantized = np.round(x_scaled) / (2**bits - 1) * (x.max() - x.min()) + x.min()
+        return x_quantized
 
     def _preprocess_inputs(self, X):
         """Quantize inputs"""
@@ -266,9 +308,9 @@ class OptimizedPerceptron(QuantizationMixin, LookupTableMixin, BitShiftMixin, Op
             z += self._bit_shift_multiply(self.weights[j], x_i[j])
         return z
 
-    def _activation_function(self, z):
-        """Use lookup table for activation"""
-        return self._lookup_activation(z)
+    def _update_weights(self, x_i, y_i, prediction, n_features):
+        """Use optimized weight update"""
+        self._update_weights_optimized(x_i, y_i, prediction, n_features)
 
 class UltraOptimizedPerceptron:
     """Ultra-optimized inference model with 1% accuracy tolerance - Best method for c)"""
@@ -565,7 +607,7 @@ def load_and_preprocess_data():
 
     return X_train, X_test, y_train, y_test, scaler
 
-def evaluate_model(model, X_test, y_test, model_name):
+def evaluate_model(model, X_test, y_test, model_name, training_time=None):
     """Evaluate model performance"""
     # Use time.perf_counter() for higher precision
     start_time = time.perf_counter()
@@ -574,9 +616,13 @@ def evaluate_model(model, X_test, y_test, model_name):
 
     accuracy = accuracy_score(y_test, predictions)
 
-    # Convert to nanoseconds for better precision display
-    time_ns = inference_time * 1_000_000_000
-    print(f"{model_name}: Accuracy={accuracy:.4f}, Time={time_ns:.0f}ns")
+    # Convert to appropriate units for display
+    inference_ns = inference_time * 1_000_000_000 # Convert to nanoseconds
+    if training_time is not None:
+        training_ms = training_time * 1_000  # Convert to milliseconds
+        print(f"{model_name:<15}: Accuracy={accuracy:.4f}, Training={training_ms:.2f}ms, Inference={inference_ns:.0f}ns")
+    else:
+        print(f"{model_name:<15}: Accuracy={accuracy:.4f}, Inference={inference_ns:.0f}ns")
 
     return accuracy, inference_time
 
@@ -595,73 +641,99 @@ def main():
 
     # Binary16 (Half Precision)
     binary16_model = Binary16Perceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
     binary16_model.fit(X_train, y_train)
-    binary16_acc, binary16_time = evaluate_model(binary16_model, X_test, y_test, "Binary16")
+    binary16_training_time = time.perf_counter() - start_time
+    binary16_acc, binary16_time = evaluate_model(binary16_model, X_test, y_test, "Binary16", binary16_training_time)
 
     # Binary32 (Single Precision)
     binary32_model = Binary32Perceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
     binary32_model.fit(X_train, y_train)
-    binary32_acc, binary32_time = evaluate_model(binary32_model, X_test, y_test, "Binary32")
+    binary32_training_time = time.perf_counter() - start_time
+    binary32_acc, binary32_time = evaluate_model(binary32_model, X_test, y_test, "Binary32", binary32_training_time)
 
     # Binary64 (Double Precision)
     binary64_model = Binary64Perceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
     binary64_model.fit(X_train, y_train)
-    binary64_acc, binary64_time = evaluate_model(binary64_model, X_test, y_test, "Binary64")
+    binary64_training_time = time.perf_counter() - start_time
+    binary64_acc, binary64_time = evaluate_model(binary64_model, X_test, y_test, "Binary64", binary64_training_time)
 
-    # Question (b): Individual optimization methods
-    print("\nQuestion (b): Individual Optimization Methods")
+    # Question (b): Training optimization methods
+    print("\nQuestion (b): Training Optimization Methods")
     print("-" * 50)
 
-    # Quantized Perceptron (only quantization)
-    quantized_model = QuantizedPerceptron(learning_rate=0.01, max_epochs=1000)
-    quantized_model.fit(X_train, y_train)
-    quantized_acc, quantized_time = evaluate_model(quantized_model, X_test, y_test, "Quantized")
+    # Train Opt Perceptron (only training optimization)
+    train_opt_model = TrainOptPerceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
+    train_opt_model.fit(X_train, y_train)
+    train_opt_training_time = time.perf_counter() - start_time
+    train_opt_acc, train_opt_time = evaluate_model(train_opt_model, X_test, y_test, "Train-Opt", train_opt_training_time)
 
-    # Lookup Table Perceptron (only lookup table)
-    lookup_model = LookupTablePerceptron(learning_rate=0.01, max_epochs=1000)
-    lookup_model.fit(X_train, y_train)
-    lookup_acc, lookup_time = evaluate_model(lookup_model, X_test, y_test, "Lookup Table")
+    # Train BitShift Perceptron (training + inference optimization)
+    train_bitshift_model = TrainBitShiftPerceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
+    train_bitshift_model.fit(X_train, y_train)
+    train_bitshift_training_time = time.perf_counter() - start_time
+    train_bitshift_acc, train_bitshift_time = evaluate_model(train_bitshift_model, X_test, y_test, "Train-BitShift", train_bitshift_training_time)
 
-    # Bit-shift Perceptron (only bit-shift multiplication)
-    bitshift_model = BitShiftPerceptron(learning_rate=0.01, max_epochs=1000)
-    bitshift_model.fit(X_train, y_train)
-    bitshift_acc, bitshift_time = evaluate_model(bitshift_model, X_test, y_test, "Bit-shift")
+    # Train Quantized Perceptron (training + quantization)
+    train_quantized_model = TrainQuantizedPerceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
+    train_quantized_model.fit(X_train, y_train)
+    train_quantized_training_time = time.perf_counter() - start_time
+    train_quantized_acc, train_quantized_time = evaluate_model(train_quantized_model, X_test, y_test, "Train-Quantized", train_quantized_training_time)
 
-    # Combined Optimized Perceptron (all three methods)
-    optimized_model = OptimizedPerceptron(learning_rate=0.01, max_epochs=1000)
-    optimized_model.fit(X_train, y_train)
-    optimized_acc, optimized_time = evaluate_model(optimized_model, X_test, y_test, "Combined")
+    # Train Combined Perceptron (all three methods)
+    train_combined_model = TrainCombinedPerceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
+    train_combined_model.fit(X_train, y_train)
+    train_combined_training_time = time.perf_counter() - start_time
+    train_combined_acc, train_combined_time = evaluate_model(train_combined_model, X_test, y_test, "Train-Combined", train_combined_training_time)
+
+    # Efficient Perceptron (vectorized operations)
+    efficient_model = EfficientPerceptron(learning_rate=0.01, max_epochs=1000)
+    start_time = time.perf_counter()
+    efficient_model.fit(X_train, y_train)
+    efficient_training_time = time.perf_counter() - start_time
+    efficient_acc, efficient_time = evaluate_model(efficient_model, X_test, y_test, "Efficient", efficient_training_time)
 
     # Question (c): Ultra-optimized inference model
     print("\nQuestion (c): Ultra-optimized inference model")
     print("-" * 50)
 
     ultra_model = UltraOptimizedPerceptron(accuracy_tolerance=0.01)
+    start_time = time.perf_counter()
     ultra_model.fit(X_train, y_train)
-    ultra_acc, ultra_time = evaluate_model(ultra_model, X_test, y_test, "Ultra-Optimized")
+    ultra_training_time = time.perf_counter() - start_time
+    ultra_acc, ultra_time = evaluate_model(ultra_model, X_test, y_test, "Ultra-Optimized", ultra_training_time)
 
     # Summary comparison
     print("\n" + "="*60)
     print("Performance Summary")
     print("="*60)
 
-    all_models = ["Binary16", "Binary32", "Binary64", "Quantized", "Lookup Table", "Bit-shift", "Combined", "Ultra-Optimized"]
-    all_accuracies = [binary16_acc, binary32_acc, binary64_acc, quantized_acc, lookup_acc, bitshift_acc, optimized_acc, ultra_acc]
-    all_times = [binary16_time, binary32_time, binary64_time, quantized_time, lookup_time, bitshift_time, optimized_time, ultra_time]
+    all_models = ["Binary16", "Binary32", "Binary64", "Train-Opt", "Train-BitShift", "Train-Quantized", "Train-Combined", "Efficient", "Ultra-Optimized"]
+    all_accuracies = [binary16_acc, binary32_acc, binary64_acc, train_opt_acc, train_bitshift_acc, train_quantized_acc, train_combined_acc, efficient_acc, ultra_acc]
+    all_training_times = [binary16_training_time, binary32_training_time, binary64_training_time, train_opt_training_time, train_bitshift_training_time, train_quantized_training_time, train_combined_training_time, efficient_training_time, ultra_training_time]
+    all_times = [binary16_time, binary32_time, binary64_time, train_opt_time, train_bitshift_time, train_quantized_time, train_combined_time, efficient_time, ultra_time]
 
-    print(f"{'Model':<15} {'Accuracy':<10} {'Time (ns)':<12} {'Category':<12}")
-    print("-" * 60)
+    print(f"{'Model':<15} {'Accuracy':<10} {'Training (ms)':<15} {'Inference (ns)':<15} {'Category':<12}")
+    print("-" * 80)
 
-    categories = ["Precision", "Precision", "Precision", "Optimization", "Optimization", "Optimization", "Optimization", "Ultra-Opt"]
+    categories = ["Precision", "Precision", "Precision", "Train-Opt", "Train-Opt", "Train-Opt", "Train-Opt", "Efficient", "Ultra-Opt"]
 
-    for i, (model, acc, time_taken, category) in enumerate(zip(all_models, all_accuracies, all_times, categories)):
-        time_ns = time_taken * 1_000_000_000
-        print(f"{model:<15} {acc:<10.4f} {time_ns:<12.0f} {category:<12}")
+    for i, (model, acc, training_time, inference_time, category) in enumerate(zip(all_models, all_accuracies, all_training_times, all_times, categories)):
+        training_ms = training_time * 1_000  # Convert to milliseconds
+        inference_ns = inference_time * 1_000_000_000
+        print(f"{model:<15} {acc:<10.4f} {training_ms:<15.2f} {inference_ns:<15.0f} {category:<12}")
 
     # Best performance summary
     print(f"\nBest Performance:")
     best_accuracy_idx = np.argmax(all_accuracies)
-    fastest_idx = np.argmin(all_times)
+    fastest_training_idx = np.argmin(all_training_times)
+    fastest_inference_idx = np.argmin(all_times)
 
     # Check if all accuracies are the same
     if len(set(all_accuracies)) == 1:
@@ -669,8 +741,10 @@ def main():
     else:
         print(f"Highest Accuracy: {all_models[best_accuracy_idx]} ({all_accuracies[best_accuracy_idx]:.4f})")
 
-    fastest_time_ns = all_times[fastest_idx] * 1_000_000_000
-    print(f"Fastest: {all_models[fastest_idx]} ({fastest_time_ns:.0f}ns)")
+    fastest_training_ms = all_training_times[fastest_training_idx] * 1_000  # Convert to milliseconds
+    fastest_inference_ns = all_times[fastest_inference_idx] * 1_000_000_000
+    print(f"Fastest Training: {all_models[fastest_training_idx]} ({fastest_training_ms:.2f}ms)")
+    print(f"Fastest Inference: {all_models[fastest_inference_idx]} ({fastest_inference_ns:.0f}ns)")
 
 if __name__ == "__main__":
     main()
