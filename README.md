@@ -29,12 +29,31 @@ Maximize inference efficiency within 1% accuracy tolerance:
 - **UltraOptimizedPerceptron**: Ultra-optimized inference model
 
 ## Usage
+
+### Option 1: Using uv (Recommended)
+You can use uv to manage dependencies and run the program:
 ```bash
+# Install uv with Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install uv with Linux and macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Install dependencies
 uv sync
 
 # Run the program
 uv run python HW1.py
+```
+
+### Option 2: Using Python directly
+Alternatively, you can run the program directly with Python without uv:
+```bash
+# Install dependencies using pip
+pip install numpy pandas scikit-learn
+
+# Run the program
+python HW1.py
 ```
 
 ## Output Results
