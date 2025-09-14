@@ -1,4 +1,4 @@
-# EE5410 Computer Arithmetic - Homework 1
+# NTHU EE5410 Computer Arithmetic - Homework 1
 
 ## Assignment Description
 

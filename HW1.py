@@ -7,6 +7,7 @@ from sklearn.metrics import accuracy_score, classification_report
 import struct
 import time
 
+# Question (a)
 class BasePerceptron:
     """Base perceptron class with common fit and predict methods"""
 
@@ -107,29 +108,21 @@ class Binary64Perceptron(BasePerceptron):
         """Binary64 is already the highest precision, no conversion needed"""
         return x  # Direct return since binary64 is already the highest precision
 
+# Question (b)
 # Mixin classes for training optimization strategies
 
 class TrainingOptimizationMixin:
     """Mixin for training phase numerical representation optimization"""
 
-    def _fast_multiply(self, a, b):
-        """Fast multiplication using simple approximation"""
-        # Use simple scaling instead of bit-shift for better performance
-        return a * b
-
-    def _fast_add(self, a, b):
-        """Fast addition - direct operation"""
-        return a + b
-
     def _update_weights_optimized(self, x_i, y_i, prediction, n_features):
-        """Optimized weight update using fast operations"""
+        """Optimized weight update using vectorized operations"""
         if prediction != y_i:
             error = y_i - prediction
 
-            # Fast bias update
+            # Vectorized bias update
             self.bias += self.learning_rate * error
 
-            # Fast weight updates - vectorized approach
+            # Vectorized weight updates - this is the real optimization
             weight_updates = self.learning_rate * error * x_i
             self.weights += weight_updates
 
@@ -253,6 +246,20 @@ class TrainBitShiftPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase
         """Use optimized weight update"""
         self._update_weights_optimized(x_i, y_i, prediction, n_features)
 
+    def predict(self, X):
+        """Optimized prediction - use standard multiplication for inference"""
+        X_processed = self._preprocess_inputs(X)
+        predictions = []
+
+        # Use standard multiplication for inference, as bit shifts are not obvious for inference
+        for i in range(X.shape[0]):
+            x_i = X_processed[i]
+            z = self.bias + np.dot(self.weights, x_i)  # Use standard vectorized multiplication
+            prediction = self._activation_function(z)
+            predictions.append(prediction)
+
+        return np.array(predictions)
+
 class TrainQuantizedPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase):
     """Perceptron with training optimization and input quantization"""
 
@@ -270,16 +277,44 @@ class TrainQuantizedPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBas
         """Use optimized weight update"""
         self._update_weights_optimized(x_i, y_i, prediction, n_features)
 
+    def predict(self, X):
+        """Optimized prediction - use vectorized operations for inference"""
+        X_processed = self._preprocess_inputs(X)
+        predictions = []
+
+        # Use vectorized operations for inference
+        for i in range(X.shape[0]):
+            x_i = X_processed[i]
+            z = self.bias + np.dot(self.weights, x_i)  # Use standard vectorized multiplication
+            prediction = self._activation_function(z)
+            predictions.append(prediction)
+
+        return np.array(predictions)
+
 class EfficientPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
     """Highly efficient perceptron using vectorized operations"""
 
     def _forward_pass(self, x_i, n_features):
-        """Use vectorized forward pass"""
+        """Use vectorized forward pass for training"""
         return self._vectorized_forward_pass(x_i, n_features)
 
     def _update_weights(self, x_i, y_i, prediction, n_features):
-        """Use vectorized weight update"""
+        """Use vectorized weight update for training"""
         self._vectorized_update_weights(x_i, y_i, prediction, n_features)
+
+    def predict(self, X):
+        """Optimized prediction - use vectorized operations for inference"""
+        X_processed = self._preprocess_inputs(X)
+        predictions = []
+
+        # Use vectorized forward pass for inference
+        for i in range(X.shape[0]):
+            x_i = X_processed[i]
+            z = self._vectorized_forward_pass(x_i, len(self.weights))
+            prediction = self._activation_function(z)
+            predictions.append(prediction)
+
+        return np.array(predictions)
 
 class TrainCombinedPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase):
     """Perceptron with all three training optimization methods combined"""
@@ -312,6 +347,21 @@ class TrainCombinedPerceptron(TrainingOptimizationMixin, OptimizedPerceptronBase
         """Use optimized weight update"""
         self._update_weights_optimized(x_i, y_i, prediction, n_features)
 
+    def predict(self, X):
+        """Optimized prediction - use standard operations for inference"""
+        X_processed = self._preprocess_inputs(X)
+        predictions = []
+
+        # Use standard vectorized operations for inference, avoiding complex bit shifts
+        for i in range(X.shape[0]):
+            x_i = X_processed[i]
+            z = self.bias + np.dot(self.weights, x_i)  # Use standard vectorized multiplication
+            prediction = self._activation_function(z)
+            predictions.append(prediction)
+
+        return np.array(predictions)
+
+# Question (c)
 class UltraOptimizedPerceptron:
     """Ultra-optimized inference model with 1% accuracy tolerance - Best method for c)"""
 
@@ -322,6 +372,7 @@ class UltraOptimizedPerceptron:
         self.accuracy_tolerance = accuracy_tolerance
         self.baseline_accuracy = None  # Store baseline accuracy for comparison
         self.optimization_method = "lookup_table"  # Default to fastest method
+        self.use_vectorized = True  # Enable vectorized operations
 
     def _select_optimal_features(self, X, y, max_features=3):
         """Select optimal features using multiple criteria with proper normalization"""
@@ -514,6 +565,11 @@ class UltraOptimizedPerceptron:
 
     def predict(self, X):
         """Ultra-fast prediction using the selected optimization method"""
+        # Use original method for inference, as vectorization is not obvious for inference
+        return self._predict_original(X)
+
+    def _predict_vectorized(self, X):
+        """Vectorized prediction method"""
         if self.optimization_method == "single_bit":
             # Single-bit rule: fastest possible (1 comparison)
             feature_idx, threshold = self.single_rule
@@ -524,13 +580,55 @@ class UltraOptimizedPerceptron:
             return (X[:, self.bitwise_feature] >= self.bitwise_threshold).astype(int)
 
         elif self.optimization_method == "lookup_table":
-            # Ultra-fast lookup table: O(1) lookup
+            # Vectorized lookup table
+            X_selected = X[:, self.feature_masks]
+
+            # Vectorized quantization
+            idx1 = np.clip(
+                ((X_selected[:, 0] - self.quantization_params[0][0]) /
+                 self.quantization_params[0][2]).astype(int), 0, 7
+            )
+
+            if X_selected.shape[1] > 1:
+                idx2 = np.clip(
+                    ((X_selected[:, 1] - self.quantization_params[1][0]) /
+                     self.quantization_params[1][2]).astype(int), 0, 7
+                )
+                predictions = self.lookup_table[idx1, idx2]
+            else:
+                predictions = self.lookup_table[idx1, 0]
+
+            return predictions
+
+        else:  # fallback - Vectorized
+            X_selected = X[:, self.feature_masks]
+
+            # Vectorized calculation of votes
+            votes = np.zeros((X.shape[0], len(self.thresholds)))
+            for j, (thresh, weight) in enumerate(zip(self.thresholds, self.feature_weights)):
+                votes[:, j] = (X_selected[:, j] >= thresh).astype(int) * weight
+
+            # Vectorized decision
+            total_weight = np.sum(self.feature_weights)
+            predictions = (np.sum(votes, axis=1) >= total_weight / 2).astype(int)
+
+            return predictions
+
+    def _predict_original(self, X):
+        """Original prediction method"""
+        if self.optimization_method == "single_bit":
+            feature_idx, threshold = self.single_rule
+            return (X[:, feature_idx] >= threshold).astype(int)
+
+        elif self.optimization_method == "bitwise":
+            return (X[:, self.bitwise_feature] >= self.bitwise_threshold).astype(int)
+
+        elif self.optimization_method == "lookup_table":
             X_selected = X[:, self.feature_masks]
             predictions = []
 
             for i in range(X.shape[0]):
                 x_i = X_selected[i]
-                # Optimized quantization
                 idx1 = int((x_i[0] - self.quantization_params[0][0]) / self.quantization_params[0][2])
                 idx1 = np.clip(idx1, 0, 7)
 
@@ -546,7 +644,6 @@ class UltraOptimizedPerceptron:
             return np.array(predictions)
 
         else:  # fallback
-            # Fallback method
             X_selected = X[:, self.feature_masks]
             predictions = []
 
