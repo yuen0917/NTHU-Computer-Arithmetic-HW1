@@ -128,12 +128,22 @@ class EfficientTrainingMixin:
 class OptimizedPerceptronBase:
     """Base class for optimized perceptrons with common functionality"""
 
-    def __init__(self, learning_rate=0.01, max_epochs=1000, dtype=np.float32, lr_pow2_shift=None):
+    def __init__(self, learning_rate=0.01, max_epochs=1000, dtype=np.float32, lr_pow2_shift=None, precision=None):
         self.learning_rate = (2.0 ** (-int(lr_pow2_shift))) if lr_pow2_shift is not None else learning_rate
         self.max_epochs = max_epochs
         self.weights = None
         self.bias = None
-        self.dtype = dtype
+        # Allow friendly precision selector; overrides dtype if provided
+        if precision is not None:
+            precision = str(precision).lower()
+            if precision in ["fp16", "float16", "binary16"]:
+                self.dtype = np.float16
+            elif precision in ["fp64", "float64", "binary64"]:
+                self.dtype = np.float64
+            else:
+                self.dtype = np.float32
+        else:
+            self.dtype = dtype
 
     def _initialize_weights(self, n_features):
         """Initialize weights and bias"""
@@ -163,15 +173,13 @@ class OptimizedPerceptronBase:
         """Training with optimizations"""
         n_samples, n_features = X.shape
 
-        # Preprocess inputs (can be overridden by mixins)
-        X_processed = self._preprocess_inputs(X)
-
         # Initialize weights
         self._initialize_weights(n_features)
 
         for _ in range(self.max_epochs):
             for i in range(n_samples):
-                x_i = X_processed[i]
+                # Ensure inputs follow selected precision
+                x_i = np.asarray(X[i], dtype=self.dtype)
                 y_i = y[i]
 
                 # Forward pass
@@ -185,24 +193,15 @@ class OptimizedPerceptronBase:
 
     def predict(self, X):
         """Prediction with optimizations"""
-        X_processed = self._preprocess_inputs(X)
         predictions = []
 
         for i in range(X.shape[0]):
-            x_i = X_processed[i]
+            x_i = np.asarray(X[i], dtype=self.dtype)
             z = self._forward_pass(x_i, len(self.weights))
             prediction = self._activation_function(z)
             predictions.append(prediction)
 
         return np.array(predictions)
-
-    def _preprocess_inputs(self, X):
-        """Preprocess inputs - can be overridden by mixins"""
-        try:
-            return X.astype(self.dtype, copy=False)
-        except Exception:
-            return X
-
 
 # Training optimization classes
 class VecUpdatePerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
@@ -231,12 +230,11 @@ class VecQuantPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
 
     def predict(self, X):
         """Optimized prediction - use vectorized operations for inference"""
-        X_processed = self._preprocess_inputs(X)
         predictions = []
 
         # Use vectorized operations for inference
         for i in range(X.shape[0]):
-            x_i = X_processed[i]
+            x_i = X[i]
             z = self.bias + np.dot(self.weights, x_i)  # Use standard vectorized multiplication
             prediction = self._activation_function(z)
             predictions.append(prediction)
@@ -256,12 +254,11 @@ class VecFullPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
 
     def predict(self, X):
         """Optimized prediction - use vectorized operations for inference"""
-        X_processed = self._preprocess_inputs(X)
         predictions = []
 
         # Use vectorized forward pass for inference
         for i in range(X.shape[0]):
-            x_i = X_processed[i]
+            x_i = X[i]
             z = self._vectorized_forward_pass(x_i, len(self.weights))
             prediction = self._activation_function(z)
             predictions.append(prediction)
@@ -282,8 +279,8 @@ class VecComboPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
         return self._quantize_input(X)
 
     def _forward_pass(self, x_i, n_features):
-        """Use standard vectorized dot product for forward pass"""
-        return self.bias + np.dot(self.weights, x_i)
+        """Use mixin's vectorized forward pass"""
+        return self._vectorized_forward_pass(x_i, n_features)
 
     def _update_weights(self, x_i, y_i, prediction, n_features):
         """Use optimized weight update"""
@@ -291,12 +288,11 @@ class VecComboPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
 
     def predict(self, X):
         """Optimized prediction - use standard operations for inference"""
-        X_processed = self._preprocess_inputs(X)
         predictions = []
 
         # Use standard vectorized operations for inference, avoiding complex bit shifts
         for i in range(X.shape[0]):
-            x_i = X_processed[i]
+            x_i = X[i]
             z = self.bias + np.dot(self.weights, x_i)  # Use standard vectorized multiplication
             prediction = self._activation_function(z)
             predictions.append(prediction)
@@ -307,7 +303,7 @@ class VecComboPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
 class UltraOptimizedPerceptron:
     """Ultra-optimized inference model with 1% accuracy tolerance - Best method for c)"""
 
-    def __init__(self, accuracy_tolerance=0.01):
+    def __init__(self, accuracy_tolerance=0.01, precision=None):
         self.weights = None
         self.bias = None
         self.feature_masks = None
@@ -315,6 +311,17 @@ class UltraOptimizedPerceptron:
         self.baseline_accuracy = None  # Store baseline accuracy for comparison
         self.optimization_method = "lookup_table"  # Default to fastest method
         self.use_vectorized = True  # Enable vectorized operations
+        # Precision selector for part (c)
+        if precision is not None:
+            p = str(precision).lower()
+            if p in ["fp16", "float16", "binary16"]:
+                self.dtype = np.float16
+            elif p in ["fp64", "float64", "binary64"]:
+                self.dtype = np.float64
+            else:
+                self.dtype = np.float32
+        else:
+            self.dtype = np.float32
 
     def _select_optimal_features(self, X, y, max_features=3):
         """Select optimal features using multiple criteria with proper normalization"""
@@ -463,6 +470,8 @@ class UltraOptimizedPerceptron:
 
     def fit(self, X, y):
         """Train ultra-optimized model with maximum speed optimization"""
+        # Ensure inputs follow selected precision
+        X = np.asarray(X, dtype=self.dtype)
         # Step 1: Calculate real baseline accuracy
         maj = int(np.mean(y) >= 0.5)  # Majority class
         self.baseline_accuracy = max(np.mean(y==0), np.mean(y==1))
@@ -507,6 +516,7 @@ class UltraOptimizedPerceptron:
 
     def predict(self, X):
         """Ultra-fast prediction using the selected optimization method"""
+        X = np.asarray(X, dtype=self.dtype)
         # Use original method for inference, as vectorization is not obvious for inference
         return self._predict_original(X)
 
@@ -710,8 +720,6 @@ def main():
     train_opt_training_time = time.perf_counter() - start_time
     train_opt_acc, train_opt_time = evaluate_model(train_opt_model, X_test, y_test, "Vec-Update", train_opt_training_time)
 
-    # Removed Train BitShift Perceptron (deprecated)
-
     # Train Quantized Perceptron (training + quantization)
     train_quantized_model = VecQuantPerceptron(learning_rate=0.01, max_epochs=1000)
     start_time = time.perf_counter()
@@ -727,24 +735,17 @@ def main():
     train_combined_acc, train_combined_time = evaluate_model(train_combined_model, X_test, y_test, "Vec-Combo", train_combined_training_time)
 
     # Efficient Perceptron (vectorized operations)
-    efficient_model = VecFullPerceptron(learning_rate=0.01, max_epochs=1000)
+    efficient_model = VecFullPerceptron(learning_rate=0.01, max_epochs=1000) # Default precision is float32
     start_time = time.perf_counter()
     efficient_model.fit(X_train, y_train)
     efficient_training_time = time.perf_counter() - start_time
     efficient_acc, efficient_time = evaluate_model(efficient_model, X_test, y_test, "Vec-Full", efficient_training_time)
 
-    # Efficient FP16 with power-of-two LR (shift-friendly)
-    efficient_fp16_pow2 = VecFullPerceptron(learning_rate=0.01, max_epochs=1000, dtype=np.float16, lr_pow2_shift=7)
-    start_time = time.perf_counter()
-    efficient_fp16_pow2.fit(X_train, y_train)
-    efficient_fp16_pow2_train = time.perf_counter() - start_time
-    efficient_fp16_pow2_acc, efficient_fp16_pow2_time = evaluate_model(efficient_fp16_pow2, X_test, y_test, "Vec-Full-2^-7", efficient_fp16_pow2_train)
-
     # Question (c): Ultra-optimized inference model
     print("\nQuestion (c): Ultra-optimized inference model")
     print("-" * 50)
 
-    ultra_model = UltraOptimizedPerceptron(accuracy_tolerance=0.01)
+    ultra_model = UltraOptimizedPerceptron(accuracy_tolerance=0.01) # Default precision is float32
     start_time = time.perf_counter()
     ultra_model.fit(X_train, y_train)
     ultra_training_time = time.perf_counter() - start_time
@@ -755,18 +756,18 @@ def main():
     print("Performance Summary")
     print("="*60)
 
-    all_models = ["Binary16", "Binary32", "Binary64", "Vec-Update", "Vec-Quant", "Vec-Combo", "Vec-Full", "Vec-Full-2^-7", "Ultra-Optimized"]
-    all_accuracies = [binary16_acc, binary32_acc, binary64_acc, train_opt_acc, train_quantized_acc, train_combined_acc, efficient_acc, efficient_fp16_pow2_acc, ultra_acc]
-    all_training_times = [binary16_training_time, binary32_training_time, binary64_training_time, train_opt_training_time, train_quantized_training_time, train_combined_training_time, efficient_training_time, efficient_fp16_pow2_train, ultra_training_time]
-    all_times = [binary16_time, binary32_time, binary64_time, train_opt_time, train_quantized_time, train_combined_time, efficient_time, efficient_fp16_pow2_time, ultra_time]
+    all_models = ["Binary16", "Binary32", "Binary64", "Vec-Update", "Vec-Quant", "Vec-Combo", "Vec-Full", "Ultra-Optimized"]
+    all_accuracies = [binary16_acc, binary32_acc, binary64_acc, train_opt_acc, train_quantized_acc, train_combined_acc, efficient_acc, ultra_acc]
+    all_training_times = [binary16_training_time, binary32_training_time, binary64_training_time, train_opt_training_time, train_quantized_training_time, train_combined_training_time, efficient_training_time, ultra_training_time]
+    all_times = [binary16_time, binary32_time, binary64_time, train_opt_time, train_quantized_time, train_combined_time, efficient_time, ultra_time]
 
     print(f"{'Model':<20} {'Accuracy':<10} {'Training (ms)':<15} {'Inference (us)':<15} {'Category':<12}")
     print("-" * 80)
 
-    categories = ["Precision", "Precision", "Precision", "Train-Opt", "Train-Opt", "Train-Opt", "Efficient", "Efficient", "Ultra-Opt"]
+    categories = ["Precision", "Precision", "Precision", "Train-Opt", "Train-Opt", "Train-Opt", "Efficient", "Ultra-Opt"]
 
     # Question labels for each row
-    q_labels = ["(a)", "(a)", "(a)", "(b)", "(b)", "(b)", "(b)", "(b)", "(c)"]
+    q_labels = ["(a)", "(a)", "(a)", "(b)", "(b)", "(b)", "(b)", "(c)"]
 
     for i, (model, acc, training_time, inference_time, category) in enumerate(zip(all_models, all_accuracies, all_training_times, all_times, categories)):
         training_ms = training_time * 1_000  # Convert to milliseconds
