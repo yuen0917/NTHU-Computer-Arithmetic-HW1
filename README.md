@@ -85,8 +85,6 @@ The program prints:
 - The highest-accuracy model and the fastest training/inference models
 - "All the same" when all models have identical accuracy
 
-Note: Currently, (b) does not print parameter memory info; (c) prints performance and accuracy only (no internal optimization details).
-
 ## Dependencies
 
 - numpy
