@@ -114,14 +114,14 @@ class Binary64Perceptron(BasePerceptron):
 class EfficientTrainingMixin:
     """Vectorized forward and weight update operations for training/inference"""
 
-    def _vectorized_update_weights(self, x_i, y_i, prediction, n_features):
+    def _vectorized_update_weights(self, x_i, y_i, prediction):
         """Vectorized weight update for better performance"""
         if prediction != y_i:
             error = y_i - prediction
             self.bias += self.learning_rate * error
             self.weights += self.learning_rate * error * x_i
 
-    def _vectorized_forward_pass(self, x_i, n_features):
+    def _vectorized_forward_pass(self, x_i):
         """Vectorized forward pass"""
         return self.bias + np.dot(self.weights, x_i)
 
@@ -150,10 +150,10 @@ class OptimizedPerceptronBase:
         self.weights = (np.random.randn(n_features) * 0.1).astype(self.dtype)
         self.bias = self.dtype(0.0)
 
-    def _forward_pass(self, x_i, n_features):
+    def _forward_pass(self, x_i):
         """Standard forward pass - can be overridden by mixins"""
         z = self.bias
-        for j in range(n_features):
+        for j in range(len(self.weights)):
             z += self.weights[j] * x_i[j]
         return z
 
@@ -161,12 +161,12 @@ class OptimizedPerceptronBase:
         """Standard activation function - can be overridden by mixins"""
         return 1 if z >= 0 else 0
 
-    def _update_weights(self, x_i, y_i, prediction, n_features):
+    def _update_weights(self, x_i, y_i, prediction):
         """Update weights if prediction is wrong"""
         if prediction != y_i:
             error = y_i - prediction
             self.bias += self.learning_rate * error
-            for j in range(n_features):
+            for j in range(len(self.weights)):
                 self.weights[j] += self.learning_rate * error * x_i[j]
 
     def fit(self, X, y):
@@ -183,13 +183,13 @@ class OptimizedPerceptronBase:
                 y_i = y[i]
 
                 # Forward pass
-                z = self._forward_pass(x_i, n_features)
+                z = self._forward_pass(x_i)
 
                 # Activation function
                 prediction = self._activation_function(z)
 
                 # Update weights
-                self._update_weights(x_i, y_i, prediction, n_features)
+                self._update_weights(x_i, y_i, prediction)
 
     def predict(self, X):
         """Prediction with optimizations"""
@@ -197,7 +197,7 @@ class OptimizedPerceptronBase:
 
         for i in range(X.shape[0]):
             x_i = np.asarray(X[i], dtype=self.dtype)
-            z = self._forward_pass(x_i, len(self.weights))
+            z = self._forward_pass(x_i)
             prediction = self._activation_function(z)
             predictions.append(prediction)
 
@@ -207,9 +207,9 @@ class OptimizedPerceptronBase:
 class VecUpdatePerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
     """Perceptron with training phase numerical optimization"""
 
-    def _update_weights(self, x_i, y_i, prediction, n_features):
+    def _update_weights(self, x_i, y_i, prediction):
         """Use optimized weight update"""
-        self._vectorized_update_weights(x_i, y_i, prediction, n_features)
+        self._vectorized_update_weights(x_i, y_i, prediction)
 
 class VecQuantPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
     """Perceptron with training optimization and input quantization"""
@@ -224,9 +224,9 @@ class VecQuantPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
         """Quantize inputs"""
         return self._quantize_input(X)
 
-    def _update_weights(self, x_i, y_i, prediction, n_features):
+    def _update_weights(self, x_i, y_i, prediction):
         """Use optimized weight update"""
-        self._vectorized_update_weights(x_i, y_i, prediction, n_features)
+        self._vectorized_update_weights(x_i, y_i, prediction)
 
     def predict(self, X):
         """Optimized prediction - use vectorized operations for inference"""
@@ -244,13 +244,13 @@ class VecQuantPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
 class VecFullPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
     """Highly efficient perceptron using vectorized operations"""
 
-    def _forward_pass(self, x_i, n_features):
+    def _forward_pass(self, x_i):
         """Use vectorized forward pass for training"""
-        return self._vectorized_forward_pass(x_i, n_features)
+        return self._vectorized_forward_pass(x_i)
 
-    def _update_weights(self, x_i, y_i, prediction, n_features):
+    def _update_weights(self, x_i, y_i, prediction):
         """Use vectorized weight update for training"""
-        self._vectorized_update_weights(x_i, y_i, prediction, n_features)
+        self._vectorized_update_weights(x_i, y_i, prediction)
 
     def predict(self, X):
         """Optimized prediction - use vectorized operations for inference"""
@@ -259,7 +259,7 @@ class VecFullPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
         # Use vectorized forward pass for inference
         for i in range(X.shape[0]):
             x_i = X[i]
-            z = self._vectorized_forward_pass(x_i, len(self.weights))
+            z = self._vectorized_forward_pass(x_i)
             prediction = self._activation_function(z)
             predictions.append(prediction)
 
@@ -278,13 +278,13 @@ class VecComboPerceptron(EfficientTrainingMixin, OptimizedPerceptronBase):
         """Quantize inputs"""
         return self._quantize_input(X)
 
-    def _forward_pass(self, x_i, n_features):
+    def _forward_pass(self, x_i):
         """Use mixin's vectorized forward pass"""
-        return self._vectorized_forward_pass(x_i, n_features)
+        return self._vectorized_forward_pass(x_i)
 
-    def _update_weights(self, x_i, y_i, prediction, n_features):
+    def _update_weights(self, x_i, y_i, prediction):
         """Use optimized weight update"""
-        self._vectorized_update_weights(x_i, y_i, prediction, n_features)
+        self._vectorized_update_weights(x_i, y_i, prediction)
 
     def predict(self, X):
         """Optimized prediction - use standard operations for inference"""
