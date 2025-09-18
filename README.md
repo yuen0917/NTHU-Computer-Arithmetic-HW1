@@ -12,29 +12,37 @@ Compare performance across different floating-point precisions:
 - **Binary32 (Single Precision)**: 32-bit single-precision floating-point
 - **Binary64 (Double Precision)**: 64-bit double-precision floating-point
 
-### Question (b): Individual Optimization Methods
+### Question (b): Training Optimization Methods
 
-Implement three independent optimization methods:
+Vectorized and numerically optimized training variants (inference follows each class's implementation):
 
-- **Quantized Perceptron**: Input quantization optimization (8-bit quantization)
-- **Lookup Table Perceptron**: Lookup table optimization (pre-computed activation function)
-- **Bit-shift Perceptron**: Bit-shift multiplication optimization
-- **Combined Perceptron**: Integration of all three optimization methods
+- **Vec-Update (VecUpdatePerceptron)**: Vectorized weight updates only (vectorized training; elementwise forward).
+- **Vec-Quant (VecQuantPerceptron)**: Same training as above plus input quantization preprocessing (8-bit quantization).
+- **Vec-Combo (VecComboPerceptron)**: Combines quantization, vectorized forward, and vectorized updates.
+- **Vec-Full (VecFullPerceptron)**: Both training and inference use vectorized forward and updates.
 
 ### Question (c): Ultra-optimized Inference Model
 
-Maximize inference efficiency within 1% accuracy tolerance:
+Maximize inference efficiency within 1% accuracy tolerance (binary labels only, `y ∈ {0,1}`):
 
-- **Feature Selection**: Multi-criteria based on variance, correlation, and mutual information
-- **Decision Rules**: Single-feature thresholds, bitwise operations, lookup tables
-- **Adaptive Optimization**: Automatically select the fastest method meeting accuracy requirements
+- **Feature Selection**: Combine three criteria, normalize, and take Top-k (k=2 for LUT):
+  - Variance (higher is better)
+  - Pearson correlation with `y` (absolute value; higher is better)
+  - Conditional entropy H(Y|Z) (compute then negate so "lower is better" becomes "higher is better")
+- **Decision Rules (auto-select the fastest that meets accuracy requirement):**
+  - Single-bit rule (single threshold on one feature)
+  - Bitwise rule (single feature with threshold)
+  - 2D lookup table (8×8 quantized grid)
+  - Fallback: multi-feature threshold voting if above fail to meet tolerance
+- **Inference**: Only the vectorized inference path is kept.
 
 ## Program Architecture
 
-- **BasePerceptron**: Base class for IEEE 754 precision handling
-- **Mixin Classes**: Modular optimization strategies (QuantizationMixin, LookupTableMixin, BitShiftMixin)
-- **OptimizedPerceptronBase**: Common functionality for optimized perceptrons
-- **UltraOptimizedPerceptron**: Ultra-optimized inference model
+- **BasePerceptron**: Base perceptron with IEEE 754 precision handling
+- **EfficientTrainingMixin**: Vectorized forward and update utilities for training
+- **OptimizedPerceptronBase**: Common training/inference with precision selection
+- **VecUpdate/VecQuant/VecFull/VecCombo**: Optimized family for question (b)
+- **UltraOptimizedPerceptron**: Ultra-optimized model for (c) with vectorized inference only
 
 ## Usage
 
@@ -70,12 +78,14 @@ python HW1.py
 
 ## Output Results
 
-The program displays:
+The program prints:
 
-- Accuracy and inference time for each model (nanosecond precision)
-- Performance comparison table
-- Best accuracy and fastest speed models
+- Accuracy and inference time for each model (in microseconds, us); training time is shown in milliseconds (ms)
+- A summary table (model, accuracy, training/inference times, category)
+- The highest-accuracy model and the fastest training/inference models
 - "All the same" when all models have identical accuracy
+
+Note: Currently, (b) does not print parameter memory info; (c) prints performance and accuracy only (no internal optimization details).
 
 ## Dependencies
 

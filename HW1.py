@@ -310,7 +310,6 @@ class UltraOptimizedPerceptron:
         self.accuracy_tolerance = accuracy_tolerance
         self.baseline_accuracy = None  # Store baseline accuracy for comparison
         self.optimization_method = "lookup_table"  # Default to fastest method
-        self.use_vectorized = True  # Enable vectorized operations
         # Precision selector for part (c)
         if precision is not None:
             p = str(precision).lower()
@@ -368,7 +367,7 @@ class UltraOptimizedPerceptron:
         # Combine normalized scores
         norm_var = _normalize_scores(variances)
         norm_corr = _normalize_scores(correlations)
-        norm_mi = _normalize_scores(mutual_info)
+        norm_mi = _normalize_scores(-np.asarray(mutual_info)) # Invert conditional entropy so that higher is better (lower H(Y|Z) → higher score)
 
         scores = (norm_var + norm_corr + norm_mi) / 3
         self.feature_masks = np.argsort(scores)[-max_features:]
@@ -472,8 +471,8 @@ class UltraOptimizedPerceptron:
         """Train ultra-optimized model with maximum speed optimization"""
         # Ensure inputs follow selected precision
         X = np.asarray(X, dtype=self.dtype)
+
         # Step 1: Calculate real baseline accuracy
-        maj = int(np.mean(y) >= 0.5)  # Majority class
         self.baseline_accuracy = max(np.mean(y==0), np.mean(y==1))
         min_acceptable_accuracy = self.baseline_accuracy - self.accuracy_tolerance
 
@@ -517,11 +516,7 @@ class UltraOptimizedPerceptron:
     def predict(self, X):
         """Ultra-fast prediction using the selected optimization method"""
         X = np.asarray(X, dtype=self.dtype)
-        # Use original method for inference, as vectorization is not obvious for inference
-        return self._predict_original(X)
-
-    def _predict_vectorized(self, X):
-        """Vectorized prediction method"""
+        # Vectorized prediction implementation
         if self.optimization_method == "single_bit":
             # Single-bit rule: fastest possible (1 comparison)
             feature_idx, threshold = self.single_rule
@@ -566,74 +561,7 @@ class UltraOptimizedPerceptron:
 
             return predictions
 
-    def _predict_original(self, X):
-        """Original prediction method"""
-        if self.optimization_method == "single_bit":
-            feature_idx, threshold = self.single_rule
-            return (X[:, feature_idx] >= threshold).astype(int)
 
-        elif self.optimization_method == "bitwise":
-            return (X[:, self.bitwise_feature] >= self.bitwise_threshold).astype(int)
-
-        elif self.optimization_method == "lookup_table":
-            X_selected = X[:, self.feature_masks]
-            predictions = []
-
-            for i in range(X.shape[0]):
-                x_i = X_selected[i]
-                idx1 = int((x_i[0] - self.quantization_params[0][0]) / self.quantization_params[0][2])
-                idx1 = np.clip(idx1, 0, 7)
-
-                if X_selected.shape[1] > 1:
-                    idx2 = int((x_i[1] - self.quantization_params[1][0]) / self.quantization_params[1][2])
-                    idx2 = np.clip(idx2, 0, 7)
-                    prediction = self.lookup_table[idx1, idx2]
-                else:
-                    prediction = self.lookup_table[idx1, 0]
-
-                predictions.append(prediction)
-
-            return np.array(predictions)
-
-        else:  # fallback
-            X_selected = X[:, self.feature_masks]
-            predictions = []
-
-            for i in range(X.shape[0]):
-                x_i = X_selected[i]
-                votes = []
-                for j, (thresh, weight) in enumerate(zip(self.thresholds, self.feature_weights)):
-                    vote = 1 if x_i[j] >= thresh else 0
-                    votes.append(vote * weight)
-
-                prediction = 1 if np.sum(votes) >= np.sum(self.feature_weights) / 2 else 0
-                predictions.append(prediction)
-
-            return np.array(predictions)
-
-    def _estimate_memory_usage(self):
-        """Estimate memory usage of the optimized model"""
-        if self.optimization_method == "single_bit":
-            return "1 threshold (4 bytes)"
-        elif self.optimization_method == "bitwise":
-            return "1 threshold (4 bytes)"
-        elif self.optimization_method == "lookup_table":
-            lut_bytes = self.lookup_table.size  # uint8 entries
-            param_bytes = len(self.quantization_params) * 3 * 8  # 3 floats per feature
-            return f"LUT: {lut_bytes} bytes + Params: {param_bytes} bytes = {lut_bytes + param_bytes} bytes total"
-        else:
-            return f"{len(self.thresholds)} thresholds + {len(self.feature_weights)} weights"
-
-    def get_optimization_info(self):
-        """Get information about optimization level"""
-        info = {
-            'features_used': len(self.feature_masks) if self.feature_masks is not None else 0,
-            'has_lookup_table': hasattr(self, 'lookup_table'),
-            'lookup_table_size': self.lookup_table.size if hasattr(self, 'lookup_table') else 0,
-            'thresholds_count': len(self.thresholds) if hasattr(self, 'thresholds') else 0,
-            'accuracy_tolerance': self.accuracy_tolerance
-        }
-        return info
 
 def load_and_preprocess_data():
     """Load and preprocess Iris dataset"""
